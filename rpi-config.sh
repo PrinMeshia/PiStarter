@@ -60,6 +60,9 @@ create_directories() {
     log "INFO" "Création des répertoires de configuration..."
     sudo mkdir -p "$CONFIG_DIR" "$BACKUP_DIR"
     sudo chmod 755 "$CONFIG_DIR" "$BACKUP_DIR"
+    # Création du fichier log + droits pour l'utilisateur
+    sudo touch "$LOGFILE"
+    sudo chown $USER "$LOGFILE"
 }
 
 detect_rpi_model() {
