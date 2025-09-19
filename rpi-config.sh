@@ -1,11 +1,11 @@
 #!/bin/bash
-# RPi Auto-Configurator
+# PiStarter
 # Script d'installation et configuration automatique pour Raspberry Pi
-# Usage: curl -fsSL https://raw.githubusercontent.com/PrinMeshia/rpi-auto-configurator/refs/heads/main/rpi-config.sh | bash
-# Ou: wget -qO- https://raw.githubusercontent.com/PrinMeshia/rpi-auto-configurator/refs/heads/main/rpi-config.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/PrinMeshia/PiStarter/refs/heads/main/rpi-config.sh | bash
+# Ou: wget -qO- https://raw.githubusercontent.com/PrinMeshia/PiStarter/refs/heads/main/rpi-config.sh | bash
 
 VERSION="1.0.0"
-SCRIPT_NAME="RPi Auto-Configurator"
+SCRIPT_NAME="PiStarter"
 LOGFILE="/var/log/rpi-autoconfig.log"
 CONFIG_DIR="/etc/rpi-autoconfig"
 BACKUP_DIR="/etc/rpi-autoconfig/backups"
@@ -203,7 +203,7 @@ configure_boot_config() {
     
     # Base de configuration selon le type d'usage
     cat > "$temp_config" << 'EOF'
-# Configuration générée par RPi Auto-Configurator
+# Configuration générée par PiStarter
 # Pour plus d'options: http://rptl.io/configtxt
 
 # Interfaces matérielles
@@ -295,7 +295,7 @@ configure_ssh() {
     local sshd_config="/etc/ssh/sshd_config"
     
     cat > /tmp/sshd_config.new << EOF
-# Configuration SSH générée par RPi Auto-Configurator
+# Configuration SSH générée par PiStarter
 Port $SSH_PORT
 AddressFamily inet
 ListenAddress 0.0.0.0
@@ -390,7 +390,7 @@ install_monitoring() {
         # Script de monitoring SSH adaptatif et sécurisé
         cat > /usr/local/bin/ssh-monitor-safe.sh << 'MONITOR_SCRIPT'
 #!/bin/bash
-# Script de monitoring SSH adaptatif - intégré par RPi Auto-Configurator
+# Script de monitoring SSH adaptatif - intégré par PiStarter
 LOGFILE="/var/log/ssh-monitor-safe.log"
 CHECK_INTERVAL=300  # 5 minutes
 FAILURE_THRESHOLD=3
@@ -662,7 +662,7 @@ apply_system_optimizations() {
     # Optimisations sysctl
     cat >> /etc/sysctl.conf << 'EOF'
 
-# Optimisations RPi Auto-Configurator
+# Optimisations PiStarter
 vm.swappiness=10
 vm.dirty_ratio=15
 vm.dirty_background_ratio=5
@@ -734,7 +734,7 @@ STATUS_SCRIPT
     # Script de diagnostic SSH intégré
     cat > /usr/local/bin/rpi-ssh-debug << 'DEBUG_SCRIPT'
 #!/bin/bash
-# Script de diagnostic SSH intégré au RPi Auto-Configurator
+# Script de diagnostic SSH intégré au PiStarter
 
 echo "🔍 Diagnostic SSH Raspberry Pi"
 echo "==============================="
