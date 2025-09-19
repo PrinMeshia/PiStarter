@@ -25,6 +25,263 @@ DEFAULT_TIMEZONE="Europe/Paris"
 DEFAULT_LOCALE="fr_FR.UTF-8"
 DEFAULT_KEYBOARD="fr"
 
+# Templates de fichiers de configuration
+SSH_CONFIG_TEMPLATE='# Configuration SSH générée par PiStarter
+Port $SSH_PORT
+AddressFamily inet
+ListenAddress 0.0.0.0
+
+# Sécurité de base
+PermitRootLogin no
+StrictModes yes
+MaxAuthTries 6
+MaxSessions 10
+MaxStartups 10:30:60
+
+# Authentification
+PubkeyAuthentication yes
+AuthorizedKeysFile .ssh/authorized_keys
+PasswordAuthentication $([[ $SSH_PASSWORD_AUTH == "y" ]] && echo "yes" || echo "no")
+PermitEmptyPasswords no
+ChallengeResponseAuthentication no
+
+# Keep-alive pour stabilité
+ClientAliveInterval 30
+ClientAliveCountMax 6
+TCPKeepAlive yes
+
+# Optimisations
+Compression delayed
+UseDNS no
+GSSAPIAuthentication no
+UsePAM yes
+
+# Logging
+SyslogFacility AUTHPRIV
+LogLevel INFO
+
+# SFTP
+Subsystem sftp /usr/lib/openssh/sftp-server
+
+# Limitations utilisateur
+AllowUsers $DEFAULT_USERNAME
+Protocol 2
+HostbasedAuthentication no
+IgnoreRhosts yes
+
+# Chiffrements optimisés
+Ciphers chacha20-poly1305@openssh.com,aes128-ctr,aes192-ctr,aes256-ctr
+MACs hmac-sha2-256,hmac-sha2-512
+KexAlgorithms curve25519-sha256@libssh.org,diffie-hellman-group16-sha512'
+
+FAIL2BAN_CONFIG_TEMPLATE='[DEFAULT]
+bantime = 3600
+findtime = 600
+maxretry = 3
+
+[ssh]
+enabled = true
+port = $SSH_PORT
+filter = sshd
+logpath = /var/log/auth.log'
+
+SYSTEMD_SERVICE_TEMPLATE='[Unit]
+Description=SSH Connection Monitor (Safe Mode)
+After=network.target ssh.service
+Wants=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/ssh-monitor-safe.sh
+Restart=on-failure
+RestartSec=60
+User=root
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target'
+
+# Fonctions utilitaires pour générer le contenu des fichiers
+generate_ssh_config() {
+    eval "echo \"$SSH_CONFIG_TEMPLATE\""
+}
+
+generate_fail2ban_config() {
+    eval "echo \"$FAIL2BAN_CONFIG_TEMPLATE\""
+}
+
+generate_systemd_service() {
+    eval "echo \"$SYSTEMD_SERVICE_TEMPLATE\""
+}
+
+generate_boot_config_header() {
+    cat << 'EOF'
+# Configuration générée par PiStarter
+# Pour plus d'options: http://rptl.io/configtxt
+
+# Interfaces matérielles
+dtparam=i2c_arm=on
+dtparam=spi=on
+
+# Mode 64-bit et optimisations de base
+arm_64bit=1
+disable_overscan=1
+arm_boost=1
+
+# Gestion automatique des overlays
+camera_auto_detect=1
+display_auto_detect=1
+auto_initramfs=1
+
+# Driver vidéo
+dtoverlay=vc4-kms-v3d
+max_framebuffers=2
+disable_fw_kms_setup=1
+
+# Configuration spécifique selon l'usage
+EOF
+}
+
+generate_usage_config() {
+    local usage_type=$1
+    case $usage_type in
+        1) # Serveur
+            cat << 'EOF'
+# Configuration SERVEUR
+start_x=0
+gpu_mem=16
+dtparam=audio=off
+hdmi_blanking=1
+dtparam=act_led_trigger=none
+dtparam=act_led_activelow=off
+dtparam=pwr_led_trigger=none
+dtparam=pwr_led_activelow=off
+EOF
+            ;;
+        2) # Desktop
+            cat << 'EOF'
+# Configuration DESKTOP
+gpu_mem=128
+dtparam=audio=on
+EOF
+            ;;
+        3) # IoT
+            cat << 'EOF'
+# Configuration IoT/DOMOTIQUE
+start_x=0
+gpu_mem=16
+dtparam=audio=off
+hdmi_blanking=1
+# Optimisations énergie
+dtparam=act_led_trigger=none
+dtparam=pwr_led_trigger=none
+EOF
+            ;;
+        4) # Développement
+            cat << 'EOF'
+# Configuration DEVELOPPEMENT
+gpu_mem=64
+EOF
+            ;;
+        5) # Media Center
+            cat << 'EOF'
+# Configuration MEDIA CENTER
+gpu_mem=256
+EOF
+            ;;
+    esac
+}
+
+generate_rpi4_optimizations() {
+    cat << 'EOF'
+
+# Optimisations RPi 4
+arm_freq=1800
+over_voltage=6
+temp_limit=80
+dtparam=sd_overclock=100
+EOF
+}
+
+generate_status_script() {
+    cat << 'EOF'
+#!/bin/bash
+# Script de statut RPi généré par Auto-Configurator
+
+echo "🍓 Raspberry Pi Status Dashboard"
+echo "================================"
+echo "Date: $(date)"
+echo "Uptime: $(uptime -p)"
+echo "Température: $(vcgencmd measure_temp 2>/dev/null || echo "temp=N/A")"
+echo "Fréquence CPU: $(vcgencmd measure_clock arm | awk -F"=" "{print $2/1000000}") MHz"
+echo "Mémoire: $(free -h | grep Mem | awk "{print $3 \"/\" $2}")"
+echo "Charge: $(cat /proc/loadavg | awk "{print $1, $2, $3}")"
+echo "Stockage: $(df -h / | tail -1 | awk "{print $3 \"/\" $2 \" (\" $5 \")"}")"
+echo
+echo "🌐 Réseau:"
+ip addr show | grep -E "inet.*wlan0|inet.*eth0" | awk "{print \"  \" $NF \": \" $2}"
+echo
+echo "🔐 SSH:"
+systemctl is-active ssh >/dev/null 2>&1 && echo "  Service: Actif" || echo "  Service: Inactif"
+echo "  Port: $SSH_PORT"
+echo "  Connexions: $(ss -tn state established | grep :$SSH_PORT | wc -l || true)"
+echo
+if systemctl is-active ssh-monitor-safe >/dev/null 2>&1; then
+    echo "📊 Monitoring: Actif"
+    echo "  Logs récents:"
+    tail -3 /var/log/ssh-monitor-safe.log 2>/dev/null | sed "s/^/    /"
+else
+    echo "📊 Monitoring: Inactif"
+fi
+echo
+echo "⚙️ Commandes utiles:"
+echo "  rpi-status                    - Ce dashboard"
+echo "  sudo systemctl status ssh-monitor-safe  - Statut monitoring"
+echo "  sudo tail -f /var/log/ssh-monitor-safe.log  - Logs monitoring"
+echo "  sudo journalctl -u ssh-monitor-safe -f     - Logs systemd"
+EOF
+}
+
+generate_ssh_debug_script() {
+    cat << 'EOF'
+#!/bin/bash
+echo "🔍 Diagnostic SSH Raspberry Pi"
+echo "==============================="
+
+if systemctl list-units --type=service 2>/dev/null | grep -q "ssh.service"; then
+    SSH_SVC="ssh"
+elif systemctl list-units --type=service 2>/dev/null | grep -q "sshd.service"; then
+    SSH_SVC="sshd"
+else
+    SSH_SVC="ssh"
+fi
+
+echo "Service SSH détecté: $SSH_SVC"
+echo
+echo "📊 État du service:"
+systemctl status $SSH_SVC --no-pager | head -10
+echo
+echo "🔌 Ports d'écoute:"
+ss -tlnp | grep :$SSH_PORT || true
+echo
+echo "🖥️ Processus SSH:"
+ps aux | grep sshd | grep -v grep || true
+echo
+echo "📝 Logs SSH récents:"
+journalctl -u $SSH_SVC --since "10 minutes ago" --no-pager | tail -10 || true
+echo
+echo "🔒 Connexions actives:"
+who || true
+ss -tn state established | grep :$SSH_PORT || true
+echo
+if [ -f /var/log/ssh-monitor-safe.log ]; then
+    echo "📊 Monitoring SSH:"
+    tail -5 /var/log/ssh-monitor-safe.log || true
+fi
+EOF
+}
+
 # Vérification terminal interactif
 if [[ ! -t 0 ]]; then
     echo -e "${RED}Ce script doit être lancé dans un terminal interactif.${NC}"
@@ -68,7 +325,7 @@ create_directories() {
     sudo chmod 755 "$CONFIG_DIR" "$BACKUP_DIR"
     # Création et permission pour le fichier log
     sudo touch "$LOGFILE"
-    sudo chown $USER "$LOGFILE"
+    sudo chown "$USER" "$LOGFILE"
 }
 
 detect_rpi_model() {
@@ -219,101 +476,27 @@ configure_boot_config() {
     local config_file="/boot/firmware/config.txt"
     local temp_config="/tmp/config.txt.new"
 
-    # En-tête commun
-    cat > "$temp_config" << EOF
-# Configuration générée par PiStarter
-# Pour plus d'options: http://rptl.io/configtxt
-
-# Interfaces matérielles
-dtparam=i2c_arm=on
-dtparam=spi=on
-
-# Mode 64-bit et optimisations de base
-arm_64bit=1
-disable_overscan=1
-arm_boost=1
-
-# Gestion automatique des overlays
-camera_auto_detect=1
-display_auto_detect=1
-auto_initramfs=1
-
-# Driver vidéo
-dtoverlay=vc4-kms-v3d
-max_framebuffers=2
-disable_fw_kms_setup=1
-
-# Configuration spécifique selon l'usage
-EOF
+    # Générer l'en-tête commun
+    generate_boot_config_header > "$temp_config"
 
     # Configurations spécifiques selon les usages sélectionnés
     for type in "${USAGE_ARRAY[@]}"; do
-        case $type in
-            1) # Serveur
-                cat >> "$temp_config" << 'EOF'
-# Configuration SERVEUR
-start_x=0
-gpu_mem=16
-dtparam=audio=off
-hdmi_blanking=1
-dtparam=act_led_trigger=none
-dtparam=act_led_activelow=off
-dtparam=pwr_led_trigger=none
-dtparam=pwr_led_activelow=off
-EOF
-                # désactiver wifi/bluetooth si demandé
-                if [[ $NETWORK_TYPE == "2" ]]; then
-                    echo "dtoverlay=pi3-disable-wifi" >> "$temp_config"
-                fi
-                if [[ $NETWORK_TYPE == "3" ]]; then
-                    echo "dtoverlay=pi3-disable-bt" >> "$temp_config"
-                fi
-                ;;
-            2) # Desktop
-                cat >> "$temp_config" << 'EOF'
-# Configuration DESKTOP
-gpu_mem=128
-dtparam=audio=on
-EOF
-                ;;
-            3) # IoT
-                cat >> "$temp_config" << 'EOF'
-# Configuration IoT/DOMOTIQUE
-start_x=0
-gpu_mem=16
-dtparam=audio=off
-hdmi_blanking=1
-# Optimisations énergie
-dtparam=act_led_trigger=none
-dtparam=pwr_led_trigger=none
-EOF
-                ;;
-            4) # Développement (exemple)
-                cat >> "$temp_config" << 'EOF'
-# Configuration DEVELOPPEMENT
-gpu_mem=64
-EOF
-                ;;
-            5) # Media Center
-                cat >> "$temp_config" << 'EOF'
-# Configuration MEDIA CENTER
-gpu_mem=256
-EOF
-                ;;
-            *) ;;
-        esac
+        generate_usage_config "$type" >> "$temp_config"
+        
+        # Configurations réseau spécifiques pour le serveur
+        if [[ $type == "1" ]]; then
+            if [[ $NETWORK_TYPE == "2" ]]; then
+                echo "dtoverlay=pi3-disable-wifi" >> "$temp_config"
+            fi
+            if [[ $NETWORK_TYPE == "3" ]]; then
+                echo "dtoverlay=pi3-disable-bt" >> "$temp_config"
+            fi
+        fi
     done
 
     # Optimisations selon le modèle de RPi
     if [[ $RPI_MODEL == "4" ]]; then
-        cat >> "$temp_config" << 'EOF'
-
-# Optimisations RPi 4
-arm_freq=1800
-over_voltage=6
-temp_limit=80
-dtparam=sd_overclock=100
-EOF
+        generate_rpi4_optimizations >> "$temp_config"
     fi
 
     # Appliquer la configuration
@@ -326,60 +509,14 @@ configure_ssh() {
     log "INFO" "Configuration SSH sécurisée..."
     
     local sshd_config="/etc/ssh/sshd_config"
+    local temp_config="/tmp/sshd_config.new"
     
-    cat > /tmp/sshd_config.new << EOF
-        # Configuration SSH générée par PiStarter
-        Port $SSH_PORT
-        AddressFamily inet
-        ListenAddress 0.0.0.0
-
-        # Sécurité de base
-        PermitRootLogin no
-        StrictModes yes
-        MaxAuthTries 6
-        MaxSessions 10
-        MaxStartups 10:30:60
-
-        # Authentification
-        PubkeyAuthentication yes
-        AuthorizedKeysFile .ssh/authorized_keys
-        PasswordAuthentication $([[ $SSH_PASSWORD_AUTH == 'y' ]] && echo 'yes' || echo 'no')
-        PermitEmptyPasswords no
-        ChallengeResponseAuthentication no
-
-        # Keep-alive pour stabilité
-        ClientAliveInterval 30
-        ClientAliveCountMax 6
-        TCPKeepAlive yes
-
-        # Optimisations
-        Compression delayed
-        UseDNS no
-        GSSAPIAuthentication no
-        UsePAM yes
-
-        # Logging
-        SyslogFacility AUTHPRIV
-        LogLevel INFO
-
-        # SFTP
-        Subsystem sftp /usr/lib/openssh/sftp-server
-
-        # Limitations utilisateur
-        AllowUsers $DEFAULT_USERNAME
-        Protocol 2
-        HostbasedAuthentication no
-        IgnoreRhosts yes
-
-        # Chiffrements optimisés
-        Ciphers chacha20-poly1305@openssh.com,aes128-ctr,aes192-ctr,aes256-ctr
-        MACs hmac-sha2-256,hmac-sha2-512
-        KexAlgorithms curve25519-sha256@libssh.org,diffie-hellman-group16-sha512
-EOF
+    # Générer la configuration SSH
+    generate_ssh_config > "$temp_config"
     
     # Tester la configuration
-    if sudo sshd -t -f /tmp/sshd_config.new; then
-        sudo cp /tmp/sshd_config.new "$sshd_config"
+    if sudo sshd -t -f "$temp_config"; then
+        sudo cp "$temp_config" "$sshd_config"
         log "INFO" "Configuration SSH appliquée"
     else
         log "ERROR" "Configuration SSH invalide"
@@ -420,7 +557,7 @@ install_monitoring() {
     if [[ $INSTALL_MONITORING == 'y' ]]; then
         log "INFO" "Installation du monitoring SSH/réseau..."
 
-        # Création du script de monitoring (heredoc quoted pour préserver les variables internes)
+        # Création du script de monitoring
         sudo bash -c 'cat > /usr/local/bin/ssh-monitor-safe.sh << '\''MONITOR_SCRIPT'\''
 #!/bin/bash
 # Script de monitoring SSH adaptatif - intégré par PiStarter
@@ -430,7 +567,6 @@ FAILURE_THRESHOLD=3
 CONSECUTIVE_FAILURES=0
 LAST_CHECK_TIME=0
 
-# SSH_PORT will be injected by the generator (first line will set SSH_PORT)
 # Variables de configuration auto-détectées
 SSH_SERVICE=""
 SSH_PROCESS_PATTERN=""
@@ -606,7 +742,7 @@ detect_ssh_configuration
 main_monitoring_loop
 MONITOR_SCRIPT'
 
-        # Injecter la valeur du port SSH AU DÉBUT du script généré (pour que le script sache quel port surveiller)
+        # Injecter la valeur du port SSH au début du script généré
         sudo sed -i "1i SSH_PORT=${SSH_PORT:-22}" /usr/local/bin/ssh-monitor-safe.sh
         sudo chmod +x /usr/local/bin/ssh-monitor-safe.sh
 
@@ -636,6 +772,55 @@ SERVICE_FILE
     fi
 }
 
+
+        
+        sudo chmod +x /usr/local/bin/ssh-monitor-safe.sh
+        
+        # Service systemd
+        generate_systemd_service > /etc/systemd/system/ssh-monitor-safe.service
+        
+        sudo systemctl daemon-reload
+        sudo systemctl enable ssh-monitor-safe.service
+        log "INFO" "Monitoring SSH adaptatif installé et activé"
+    fi
+}
+
+# Variables globales pour le monitoring SSH
+SSH_SERVICE=""
+SSH_PROCESS_PATTERN=""
+CONSECUTIVE_FAILURES=0
+FAILURE_THRESHOLD=3
+CHECK_INTERVAL=300
+LAST_CHECK_TIME=0
+
+# Auto-détection de la configuration SSH
+detect_ssh_configuration() {
+    log "INFO" "Auto-détection de la configuration SSH..."
+    
+    if systemctl list-units --type=service 2>/dev/null | grep -q "ssh.service"; then
+        SSH_SERVICE="ssh"
+    elif systemctl list-units --type=service 2>/dev/null | grep -q "sshd.service"; then
+        SSH_SERVICE="sshd"
+    elif systemctl list-units --type=service 2>/dev/null | grep -q "openssh.service"; then
+        SSH_SERVICE="openssh"
+    else
+        SSH_SERVICE="ssh"
+    fi
+    
+    local patterns=("sshd" "/usr/sbin/sshd" "/usr/bin/sshd")
+    for pattern in "${patterns[@]}"; do
+        if pgrep -f "$pattern" >/dev/null 2>/dev/null; then
+            SSH_PROCESS_PATTERN="$pattern"
+            break
+        fi
+    done
+    
+    if [ -z "$SSH_PROCESS_PATTERN" ]; then
+        SSH_PROCESS_PATTERN="sshd"
+    fi
+    
+    log "INFO" "Configuration SSH détectée - Service: $SSH_SERVICE, Processus: $SSH_PROCESS_PATTERN"
+}
 
 # Vérifier s'il y a des sessions SSH actives
 check_active_sessions() {
@@ -728,7 +913,7 @@ safe_restart_ssh() {
 
 # Boucle de monitoring principale
 main_monitoring_loop() {
-    log "INFO" "Démarrage du monitoring SSH adaptatif (PID: $)"
+    log "INFO" "Démarrage du monitoring SSH adaptatif (PID: $$)"
     log "INFO" "Configuration: Service=$SSH_SERVICE, Pattern=$SSH_PROCESS_PATTERN, Port=$SSH_PORT"
     
     while true; do
@@ -790,35 +975,6 @@ done
 # Auto-détection et démarrage
 detect_ssh_configuration
 main_monitoring_loop
-MONITOR_SCRIPT
-        
-        sudo chmod +x /usr/local/bin/ssh-monitor-safe.sh
-        
-        # Service systemd corrigé
-        cat > /etc/systemd/system/ssh-monitor-safe.service << 'SERVICE_FILE'
-[Unit]
-Description=SSH Connection Monitor (Safe Mode)
-After=network.target ssh.service
-Wants=network.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/ssh-monitor-safe.sh
-Restart=on-failure
-RestartSec=60
-User=root
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-SERVICE_FILE
-        
-        sudo systemctl daemon-reload
-        sudo systemctl enable ssh-monitor-safe.service
-        log "INFO" "Monitoring SSH adaptatif installé et activé"
-    fi
-}
 
 install_security() {
     if [[ $INSTALL_FAIL2BAN == 'y' ]]; then
@@ -826,18 +982,7 @@ install_security() {
         sudo apt install -y fail2ban
         
         # Configuration fail2ban pour SSH
-        cat > /etc/fail2ban/jail.local << EOF
-[DEFAULT]
-bantime = 3600
-findtime = 600
-maxretry = 3
-
-[ssh]
-enabled = true
-port = $SSH_PORT
-filter = sshd
-logpath = /var/log/auth.log
-EOF
+        generate_fail2ban_config > /etc/fail2ban/jail.local
         
         sudo systemctl enable fail2ban
         sudo systemctl start fail2ban
@@ -850,7 +995,7 @@ install_optional_tools() {
         log "INFO" "Installation de Docker..."
         curl -fsSL https://get.docker.com -o get-docker.sh
         sudo sh get-docker.sh
-        sudo usermod -aG docker $DEFAULT_USERNAME
+        sudo usermod -aG docker "$DEFAULT_USERNAME"
         rm get-docker.sh
         log "INFO" "Docker installé"
     fi
@@ -894,95 +1039,24 @@ EOF
 create_status_script() {
     log "INFO" "Création du script de statut système..."
 
-    sudo bash -c 'cat > /usr/local/bin/rpi-status << '\''STATUS_SCRIPT'\''
-#!/bin/bash
-# Script de statut RPi généré par Auto-Configurator
-
-echo "🍓 Raspberry Pi Status Dashboard"
-echo "================================"
-echo "Date: $(date)"
-echo "Uptime: $(uptime -p)"
-echo "Température: $(vcgencmd measure_temp 2>/dev/null || echo "temp=N/A")"
-echo "Fréquence CPU: $(vcgencmd measure_clock arm | awk -F"=" "{print $2/1000000}") MHz"
-echo "Mémoire: $(free -h | grep Mem | awk "{print $3 \"/\" $2}")"
-echo "Charge: $(cat /proc/loadavg | awk "{print $1, $2, $3}")"
-echo "Stockage: $(df -h / | tail -1 | awk "{print $3 \"/\" $2 \" (\" $5 \")"}")"
-echo
-echo "🌐 Réseau:"
-ip addr show | grep -E "inet.*wlan0|inet.*eth0" | awk "{print \"  \" $NF \": \" $2}"
-echo
-echo "🔐 SSH:"
-systemctl is-active ssh >/dev/null 2>&1 && echo "  Service: Actif" || echo "  Service: Inactif"
-echo "  Port: $SSH_PORT"
-echo "  Connexions: $(ss -tn state established | grep :$SSH_PORT | wc -l || true)"
-echo
-if systemctl is-active ssh-monitor-safe >/dev/null 2>&1; then
-    echo "📊 Monitoring: Actif"
-    echo "  Logs récents:"
-    tail -3 /var/log/ssh-monitor-safe.log 2>/dev/null | sed "s/^/    /"
-else
-    echo "📊 Monitoring: Inactif"
-fi
-echo
-echo "⚙️ Commandes utiles:"
-echo "  rpi-status                    - Ce dashboard"
-echo "  sudo systemctl status ssh-monitor-safe  - Statut monitoring"
-echo "  sudo tail -f /var/log/ssh-monitor-safe.log  - Logs monitoring"
-echo "  sudo journalctl -u ssh-monitor-safe -f     - Logs systemd"
-STATUS_SCRIPT'
-
+    # Créer le script de statut
+    generate_status_script > /usr/local/bin/rpi-status
     sudo chmod +x /usr/local/bin/rpi-status
 
     # Préfixer le script rpi-status par la valeur du port SSH et du username utilisés
     sudo sed -i "1i SSH_PORT=${SSH_PORT:-22}" /usr/local/bin/rpi-status
     sudo sed -i "1i DEFAULT_USERNAME=${DEFAULT_USERNAME}" /usr/local/bin/rpi-status
 
-    # Création de rpi-ssh-debug (similaire)
-    sudo bash -c 'cat > /usr/local/bin/rpi-ssh-debug << '\''DEBUG_SCRIPT'\''
-#!/bin/bash
-echo "🔍 Diagnostic SSH Raspberry Pi"
-echo "==============================="
-
-if systemctl list-units --type=service 2>/dev/null | grep -q "ssh.service"; then
-    SSH_SVC="ssh"
-elif systemctl list-units --type=service 2>/dev/null | grep -q "sshd.service"; then
-    SSH_SVC="sshd"
-else
-    SSH_SVC="ssh"
-fi
-
-echo "Service SSH détecté: $SSH_SVC"
-echo
-echo "📊 État du service:"
-systemctl status $SSH_SVC --no-pager | head -10
-echo
-echo "🔌 Ports d'écoute:"
-ss -tlnp | grep :$SSH_PORT || true
-echo
-echo "🖥️ Processus SSH:"
-ps aux | grep sshd | grep -v grep || true
-echo
-echo "📝 Logs SSH récents:"
-journalctl -u $SSH_SVC --since "10 minutes ago" --no-pager | tail -10 || true
-echo
-echo "🔒 Connexions actives:"
-who || true
-ss -tn state established | grep :$SSH_PORT || true
-echo
-if [ -f /var/log/ssh-monitor-safe.log ]; then
-    echo "📊 Monitoring SSH:"
-    tail -5 /var/log/ssh-monitor-safe.log || true
-fi
-DEBUG_SCRIPT'
-
+    # Créer le script de diagnostic SSH
+    generate_ssh_debug_script > /usr/local/bin/rpi-ssh-debug
     sudo chmod +x /usr/local/bin/rpi-ssh-debug
     sudo sed -i "1i SSH_PORT=${SSH_PORT:-22}" /usr/local/bin/rpi-ssh-debug
 
-    # Alias pour faciliter l'usage (procéder avec les variables déjà définies)
-    echo "alias status='rpi-status'" >> /home/$DEFAULT_USERNAME/.bashrc
-    echo "alias ssh-logs='sudo tail -f /var/log/ssh-monitor-safe.log'" >> /home/$DEFAULT_USERNAME/.bashrc
-    echo "alias ssh-status='sudo systemctl status ssh-monitor-safe'" >> /home/$DEFAULT_USERNAME/.bashrc
-    echo "alias ssh-debug='sudo rpi-ssh-debug'" >> /home/$DEFAULT_USERNAME/.bashrc
+    # Alias pour faciliter l'usage
+    echo "alias status='rpi-status'" >> "/home/$DEFAULT_USERNAME/.bashrc"
+    echo "alias ssh-logs='sudo tail -f /var/log/ssh-monitor-safe.log'" >> "/home/$DEFAULT_USERNAME/.bashrc"
+    echo "alias ssh-status='sudo systemctl status ssh-monitor-safe'" >> "/home/$DEFAULT_USERNAME/.bashrc"
+    echo "alias ssh-debug='sudo rpi-ssh-debug'" >> "/home/$DEFAULT_USERNAME/.bashrc"
 }
 
 
