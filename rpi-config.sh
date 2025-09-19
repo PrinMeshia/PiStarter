@@ -30,9 +30,9 @@ print_header() {
     clear
     echo -e "${PURPLE}╔══════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${PURPLE}║                                                              ║${NC}"
-    echo -e "${PURPLE}║           🍓 ${SCRIPT_NAME} v${VERSION} 🍓                  ║${NC}"
+    echo -e "${PURPLE}║           🍓 ${SCRIPT_NAME} v${VERSION} 🍓                   ║${NC}"
     echo -e "${PURPLE}║                                                              ║${NC}"
-    echo -e "${PURPLE}║        Configuration automatique de Raspberry Pi             ║${NC}"
+    echo -e "${PURPLE}║        Configuration automatique de Raspberry Pi            ║${NC}"
     echo -e "${PURPLE}║                                                              ║${NC}"
     echo -e "${PURPLE}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo
@@ -582,6 +582,9 @@ Port $SSH_PORT
 AddressFamily inet
 ListenAddress 0.0.0.0
 
+# Banner de connexion
+Banner /etc/ssh/ssh_banner
+
 # Sécurité de base
 PermitRootLogin no
 StrictModes yes
@@ -1094,6 +1097,40 @@ EOF
     fi
 }
 
+create_ssh_banner() {
+    log "INFO" "Création du message de démarrage SSH personnalisé..."
+    
+    # Banner SSH dans une variable
+    local ssh_banner_content='╔══════════════════════════════════════════════════════════════╗
+║                                                              ║
+║           🍓 Raspberry Pi - Serveur Configuré 🍓            ║
+║                                                              ║
+║  📅 Date: $(date "+%A %d %B %Y - %H:%M:%S")                    ║
+║  ⏱️  Uptime: $(uptime -p | sed "s/up //")                                    ║
+║  🌡️  Température: $(vcgencmd measure_temp | cut -d= -f2)                    ║
+║  💾 Mémoire: $(free -h | grep Mem | awk "{print \$3\"/\"\$2}")                    ║
+║  💿 Stockage: $(df -h / | tail -1 | awk "{print \$3\"/\"\$2\" (\"\$5\")\"}")                    ║
+║                                                              ║
+║  🌐 Connexions réseau:                                       ║
+║     $(ip addr show | grep -E "inet.*wlan0|inet.*eth0" | awk "{print \"  \" \$NF \": \" \$2}" | head -2 | sed "s/^/     /")                    ║
+║                                                              ║
+║  🔐 SSH Port: '$SSH_PORT' | Connexions actives: $(ss -tn state established | grep :'$SSH_PORT' | wc -l)                    ║
+║                                                              ║
+║  ⚙️  Commandes utiles:                                        ║
+║     • rpi-status     - Dashboard système complet             ║
+║     • ssh-status     - Statut du monitoring SSH              ║
+║     • ssh-logs       - Logs du monitoring en temps réel      ║
+║     • help           - Aide et commandes disponibles         ║
+║                                                              ║
+║  🚀 Ce serveur a été configuré avec PiStarter v'$VERSION'              ║
+║                                                              ║
+╚══════════════════════════════════════════════════════════════╝'
+    
+    # Écrire le banner
+    echo "$ssh_banner_content" | sudo tee /etc/ssh/ssh_banner > /dev/null
+    log "INFO" "Banner SSH créé: /etc/ssh/ssh_banner"
+}
+
 create_status_script() {
     log "INFO" "Création du script de statut système..."
     
@@ -1137,6 +1174,61 @@ echo "  sudo journalctl -u ssh-monitor-safe -f     - Logs systemd"'
     echo "$status_script_content" | sudo tee /usr/local/bin/rpi-status > /dev/null
     
     sudo chmod +x /usr/local/bin/rpi-status
+    
+    # Script d'aide
+    local help_script_content='#!/bin/bash
+# Script d'\''aide PiStarter
+
+echo "🍓 PiStarter - Aide et Commandes Utiles"
+echo "========================================"
+echo
+echo "📊 MONITORING SYSTÈME:"
+echo "  rpi-status                    - Dashboard système complet"
+echo "  ssh-status                    - Statut du monitoring SSH"
+echo "  ssh-logs                      - Logs du monitoring en temps réel"
+echo "  sudo journalctl -u ssh-monitor-safe -f  - Logs systemd"
+echo
+echo "🔧 GESTION SYSTÈME:"
+echo "  sudo systemctl status ssh     - Statut du service SSH"
+echo "  sudo systemctl restart ssh    - Redémarrer SSH"
+echo "  sudo systemctl status fail2ban - Statut fail2ban"
+echo "  sudo fail2ban-client status   - Statut des prisons"
+echo
+echo "🌐 RÉSEAU:"
+echo "  ip addr show                  - Adresses IP"
+echo "  ss -tuln                      - Ports en écoute"
+echo "  ping 8.8.8.8                 - Test connectivité"
+echo "  nmcli dev wifi list           - Réseaux Wi-Fi disponibles"
+echo
+echo "💾 SYSTÈME:"
+echo "  vcgencmd measure_temp         - Température CPU"
+echo "  vcgencmd measure_clock arm    - Fréquence CPU"
+echo "  free -h                       - Utilisation mémoire"
+echo "  df -h                         - Utilisation disque"
+echo "  htop                          - Moniteur système"
+echo
+echo "🔐 SÉCURITÉ:"
+echo "  sudo ufw status               - Statut firewall"
+echo "  sudo last                     - Dernières connexions"
+echo "  sudo who                      - Utilisateurs connectés"
+echo
+echo "📁 FICHIERS IMPORTANTS:"
+echo "  /etc/ssh/sshd_config          - Configuration SSH"
+echo "  /boot/firmware/config.txt     - Configuration boot"
+echo "  /var/log/ssh-monitor-safe.log - Logs monitoring"
+echo "  /etc/rpi-autoconfig/backups/  - Sauvegardes"
+echo
+echo "🆘 EN CAS DE PROBLÈME:"
+echo "  sudo /etc/rpi-autoconfig/backups/rollback.sh  - Restaurer config"
+echo "  sudo systemctl restart ssh-monitor-safe       - Redémarrer monitoring"
+echo "  sudo journalctl -xe                          - Logs système détaillés"
+echo
+echo "💡 Ce serveur a été configuré avec PiStarter v'$VERSION'"
+echo "   Pour plus d'\''aide: https://github.com/PrinMeshia/PiStarter"'
+    
+    # Écrire le script d'aide
+    echo "$help_script_content" | sudo tee /usr/local/bin/help > /dev/null
+    sudo chmod +x /usr/local/bin/help
     
     # Alias pour faciliter l'usage
     echo "alias status='rpi-status'" >> /home/$DEFAULT_USERNAME/.bashrc
@@ -1200,6 +1292,7 @@ finalize_installation() {
     echo
     echo -e "${PURPLE}🔧 Fichiers de configuration:${NC}"
     echo "• SSH: /etc/ssh/sshd_config"
+    echo "• Banner SSH: /etc/ssh/ssh_banner"
     echo "• Boot: /boot/firmware/config.txt"
     echo "• Monitoring: /var/log/ssh-monitor-safe.log"
     echo "• Sauvegardes: $BACKUP_DIR"
@@ -1263,6 +1356,7 @@ main() {
     install_optional_tools
     install_usage_specific_tools
     apply_system_optimizations
+    create_ssh_banner
     create_status_script
     finalize_installation
 }
