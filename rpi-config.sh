@@ -1,5 +1,5 @@
 #!/bin/bash
-# PiStarter
+# PiStarter - Auto-Configurator
 # Script d'installation et configuration automatique pour Raspberry Pi
 # Usage: curl -fsSL https://raw.githubusercontent.com/PrinMeshia/PiStarter/refs/heads/main/rpi-config.sh | bash
 # Ou: wget -qO- https://raw.githubusercontent.com/PrinMeshia/PiStarter/refs/heads/main/rpi-config.sh | bash
@@ -24,6 +24,12 @@ DEFAULT_USERNAME="pi"
 DEFAULT_TIMEZONE="Europe/Paris"
 DEFAULT_LOCALE="fr_FR.UTF-8"
 DEFAULT_KEYBOARD="fr"
+
+# Vérification terminal interactif
+if [[ ! -t 0 ]]; then
+    echo -e "${RED}Ce script doit être lancé dans un terminal interactif.${NC}"
+    exit 1
+fi
 
 print_header() {
     clear
@@ -60,7 +66,7 @@ create_directories() {
     log "INFO" "Création des répertoires de configuration..."
     sudo mkdir -p "$CONFIG_DIR" "$BACKUP_DIR"
     sudo chmod 755 "$CONFIG_DIR" "$BACKUP_DIR"
-    # Création du fichier log + droits pour l'utilisateur
+    # Création et permission pour le fichier log
     sudo touch "$LOGFILE"
     sudo chown $USER "$LOGFILE"
 }
@@ -149,7 +155,11 @@ interactive_setup() {
         4) echo "Type: Développement" ;;
         5) echo "Type: Media Center" ;;
     esac
-    echo "Réseau: $(case $NETWORK_TYPE in 1) 'Wi-Fi + Ethernet' ;; 2) 'Ethernet seul' ;; 3) 'Wi-Fi seul' ;; esac)"
+    echo "Réseau: $(case $NETWORK_TYPE in
+        1) echo "Wi-Fi + Ethernet";;
+        2) echo "Ethernet seul";;
+        3) echo "Wi-Fi seul";;
+    esac)"
     [[ -n $WIFI_SSID ]] && echo "Wi-Fi: $WIFI_SSID"
     echo "SSH Port: $SSH_PORT"
     echo "Monitoring: $([[ $INSTALL_MONITORING == 'y' ]] && echo 'Oui' || echo 'Non')"
