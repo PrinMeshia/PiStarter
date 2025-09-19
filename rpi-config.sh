@@ -217,7 +217,7 @@ echo "Température: $(vcgencmd measure_temp 2>/dev/null || echo "temp=N/A")"
 echo "Fréquence CPU: $(vcgencmd measure_clock arm | awk -F"=" "{print $2/1000000}") MHz"
 echo "Mémoire: $(free -h | grep Mem | awk "{print $3 \"/\" $2}")"
 echo "Charge: $(cat /proc/loadavg | awk "{print $1, $2, $3}")"
-echo "Stockage: $(df -h / | tail -1 | awk "{print $3 \"/\" $2 \" (\" $5 \")"}")"
+echo "Stockage: $(df -h / | tail -1 | awk "{print $3 \"/\" $2 \" - \" $5}")"
 echo
 echo "🌐 Réseau:"
 ip addr show | grep -E "inet.*wlan0|inet.*eth0" | awk "{print \"  \" $NF \": \" $2}"
@@ -609,7 +609,7 @@ check_active_sessions() {
     local ssh_sessions=$(ss -tn state established 2>/dev/null | grep :$SSH_PORT | wc -l || true)
 
     if [ "$active_sessions" -gt 0 ] || [ "$ssh_sessions" -gt 0 ]; then
-        log "INFO" "$active_sessions session(s) utilisateur(s), $ssh_sessions connexion(s) SSH actives - PAS de redémarrage"
+        log "INFO" "$active_sessions sessions utilisateur, $ssh_sessions connexions SSH actives - PAS de redémarrage"
         return 1
     fi
     return 0
@@ -639,11 +639,11 @@ test_ssh_health() {
 
     if [ $failures -le 2 ]; then
         if [ $failures -gt 0 ]; then
-            log "INFO" "SSH fonctionnel malgré $failures problème(s) mineur(s)"
+            log "INFO" "SSH fonctionnel malgré $failures problème mineur"
         fi
         return 0
     else
-        log "WARNING" "SSH health check failed ($failures problèmes détectés)"
+        log "WARNING" "SSH health check failed - $failures problèmes détectés"
         return 1
     fi
 }
@@ -657,7 +657,7 @@ safe_restart_ssh() {
         return 1
     fi
 
-    log "INFO" "Tentative de reload SSH (moins intrusif)"
+    log "INFO" "Tentative de reload SSH - moins intrusif"
     if systemctl reload "$SSH_SERVICE" 2>/dev/null; then
         sleep 5
         if test_ssh_health; then
@@ -682,7 +682,7 @@ safe_restart_ssh() {
 }
 
 main_monitoring_loop() {
-    log "INFO" "Démarrage du monitoring SSH adaptatif (PID: $$)"
+    log "INFO" "Démarrage du monitoring SSH adaptatif - PID: $$"
     log "INFO" "Configuration: Service=$SSH_SERVICE, Pattern=$SSH_PROCESS_PATTERN, Port=$SSH_PORT"
 
     while true; do
@@ -690,7 +690,7 @@ main_monitoring_loop() {
 
         if test_ssh_health; then
             if [ $CONSECUTIVE_FAILURES -gt 0 ]; then
-                log "INFO" "SSH récupéré après $CONSECUTIVE_FAILURES échec(s)"
+                log "INFO" "SSH récupéré après $CONSECUTIVE_FAILURES échecs"
                 CONSECUTIVE_FAILURES=0
             fi
 
@@ -828,7 +828,7 @@ check_active_sessions() {
     local ssh_sessions=$(ss -tn state established 2>/dev/null | grep :$SSH_PORT | wc -l)
     
     if [ $active_sessions -gt 0 ] || [ $ssh_sessions -gt 0 ]; then
-        log "INFO" "$active_sessions session(s) utilisateur(s), $ssh_sessions connexion(s) SSH actives - PAS de redémarrage"
+        log "INFO" "$active_sessions sessions utilisateur, $ssh_sessions connexions SSH actives - PAS de redémarrage"
         return 1  # Ne pas redémarrer s'il y a des sessions
     fi
     return 0  # OK pour redémarrer si nécessaire
@@ -865,11 +865,11 @@ test_ssh_health() {
     # Évaluation finale : tolérant si pas plus de 2 échecs
     if [ $failures -le 2 ]; then
         if [ $failures -gt 0 ]; then
-            log "INFO" "SSH fonctionnel malgré $failures problème(s) mineur(s)"
+            log "INFO" "SSH fonctionnel malgré $failures problème mineur"
         fi
         return 0
     else
-        log "WARNING" "SSH health check failed ($failures problèmes détectés)"
+        log "WARNING" "SSH health check failed - $failures problèmes détectés"
         return 1
     fi
 }
@@ -886,7 +886,7 @@ safe_restart_ssh() {
     fi
     
     # Redémarrage en douceur (reload d'abord)
-    log "INFO" "Tentative de reload SSH (moins intrusif)"
+    log "INFO" "Tentative de reload SSH - moins intrusif"
     if systemctl reload "$SSH_SERVICE" 2>/dev/null; then
         sleep 5
         if test_ssh_health; then
@@ -913,7 +913,7 @@ safe_restart_ssh() {
 
 # Boucle de monitoring principale
 main_monitoring_loop() {
-    log "INFO" "Démarrage du monitoring SSH adaptatif (PID: $$)"
+    log "INFO" "Démarrage du monitoring SSH adaptatif - PID: $$"
     log "INFO" "Configuration: Service=$SSH_SERVICE, Pattern=$SSH_PROCESS_PATTERN, Port=$SSH_PORT"
     
     while true; do
@@ -921,11 +921,11 @@ main_monitoring_loop() {
         
         if test_ssh_health; then
             if [ $CONSECUTIVE_FAILURES -gt 0 ]; then
-                log "INFO" "SSH récupéré après $CONSECUTIVE_FAILURES échec(s)"
+                log "INFO" "SSH récupéré après $CONSECUTIVE_FAILURES échecs"
                 CONSECUTIVE_FAILURES=0
             fi
             
-            # Log périodique (toutes les 30 minutes)
+            # Log périodique - toutes les 30 minutes
             if [ $((current_time - LAST_CHECK_TIME)) -ge 1800 ]; then
                 local temp=$(vcgencmd measure_temp 2>/dev/null || echo "temp=N/A")
                 log "INFO" "SSH stable - $temp"
