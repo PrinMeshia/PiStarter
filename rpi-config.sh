@@ -368,6 +368,9 @@ interactive_setup() {
     read -p "Optimiser pour SSD (si boot sur SSD)? (y/n) [n]: " SSD_OPTIMIZATIONS
     SSD_OPTIMIZATIONS=${SSD_OPTIMIZATIONS:-n}
     
+    read -p "Vérifier et corriger les bibliothèques obsolètes? (y/n) [y]: " CHECK_LIBRARIES
+    CHECK_LIBRARIES=${CHECK_LIBRARIES:-y}
+    
     # Récapitulatif
     echo -e "\n${PURPLE}═══ RÉCAPITULATIF DE LA CONFIGURATION ═══${NC}"
     echo "Types d'usage:"
@@ -445,6 +448,111 @@ update_system() {
     
     log "INFO" "Installation des paquets essentiels..."
     sudo apt install -y "${essential_packages[@]}"
+}
+
+# Fonction pour vérifier et corriger les bibliothèques obsolètes
+check_and_fix_outdated_libraries() {
+    log "INFO" "Vérification des bibliothèques obsolètes..."
+    
+    # Vérifier les daemons utilisant des bibliothèques obsolètes
+    if command -v needrestart >/dev/null 2>&1; then
+        log "INFO" "Vérification avec needrestart..."
+        local outdated_services=$(sudo needrestart -b 2>/dev/null | grep -E "Daemons using outdated libraries" -A 10 | grep -E "^\s*[a-zA-Z]" | wc -l)
+        
+        if [ "$outdated_services" -gt 0 ]; then
+            log "WARN" "Services utilisant des bibliothèques obsolètes détectés"
+            
+            # Afficher les services concernés
+            sudo needrestart -b 2>/dev/null | grep -E "Daemons using outdated libraries" -A 20 | grep -E "^\s*[a-zA-Z]" | while read service; do
+                log "WARN" "Service concerné: $service"
+            done
+            
+            # Proposer de redémarrer les services
+            log "INFO" "Redémarrage des services pour appliquer les mises à jour..."
+            sudo needrestart -r a 2>/dev/null || {
+                log "INFO" "Redémarrage manuel des services critiques..."
+                sudo systemctl restart ssh
+                sudo systemctl restart systemd-resolved
+                sudo systemctl restart systemd-logind
+            }
+        else
+            log "INFO" "Aucune bibliothèque obsolète détectée"
+        fi
+    else
+        # Installer needrestart si pas disponible
+        log "INFO" "Installation de needrestart pour la gestion des mises à jour..."
+        sudo apt install -y needrestart
+        
+        # Vérifier après installation
+        if command -v needrestart >/dev/null 2>&1; then
+            log "INFO" "Vérification post-installation..."
+            sudo needrestart -b 2>/dev/null | grep -E "Daemons using outdated libraries" -A 10 || log "INFO" "Aucun problème détecté"
+        fi
+    fi
+    
+    # Vérification supplémentaire avec lsof
+    log "INFO" "Vérification des processus utilisant des bibliothèques supprimées..."
+    if command -v lsof >/dev/null 2>&1; then
+        local deleted_libs=$(sudo lsof +D /lib /usr/lib 2>/dev/null | grep -E "DEL.*\.so" | wc -l)
+        if [ "$deleted_libs" -gt 0 ]; then
+            log "WARN" "Processus utilisant des bibliothèques supprimées détectés"
+            sudo lsof +D /lib /usr/lib 2>/dev/null | grep -E "DEL.*\.so" | head -5 | while read line; do
+                log "WARN" "Bibliothèque supprimée: $line"
+            done
+        else
+            log "INFO" "Aucune bibliothèque supprimée en cours d'utilisation"
+        fi
+    fi
+}
+
+# Fonction pour vérifier la sécurité du système
+perform_security_checks() {
+    log "INFO" "Vérifications de sécurité du système..."
+    
+    # Vérifier les mises à jour de sécurité
+    if command -v unattended-upgrades >/dev/null 2>&1; then
+        log "INFO" "Vérification des mises à jour automatiques de sécurité..."
+        if systemctl is-enabled unattended-upgrades >/dev/null 2>&1; then
+            log "INFO" "Mises à jour automatiques de sécurité activées"
+        else
+            log "WARN" "Mises à jour automatiques de sécurité non activées"
+            read -p "Activer les mises à jour automatiques de sécurité? (y/n) [y]: " ENABLE_AUTO_UPDATES
+            ENABLE_AUTO_UPDATES=${ENABLE_AUTO_UPDATES:-y}
+            
+            if [[ $ENABLE_AUTO_UPDATES == 'y' ]]; then
+                sudo systemctl enable unattended-upgrades
+                sudo systemctl start unattended-upgrades
+                log "INFO" "Mises à jour automatiques de sécurité activées"
+            fi
+        fi
+    fi
+    
+    # Vérifier les ports ouverts
+    log "INFO" "Vérification des ports ouverts..."
+    local open_ports=$(ss -tuln | grep LISTEN | wc -l)
+    log "INFO" "Ports en écoute: $open_ports"
+    
+    # Afficher les ports ouverts (sauf les ports système)
+    ss -tuln | grep LISTEN | grep -v -E "127\.0\.0\.1|::1" | while read line; do
+        local port=$(echo $line | awk '{print $5}' | cut -d: -f2)
+        local service=$(ss -tuln | grep ":$port " | head -1)
+        log "INFO" "Port ouvert: $port"
+    done
+    
+    # Vérifier les utilisateurs avec shell
+    log "INFO" "Vérification des utilisateurs avec shell..."
+    local shell_users=$(grep -E ":/bin/(bash|sh|zsh)$" /etc/passwd | wc -l)
+    log "INFO" "Utilisateurs avec shell: $shell_users"
+    
+    # Vérifier les permissions sensibles
+    log "INFO" "Vérification des permissions sensibles..."
+    if [ -w /etc/passwd ]; then
+        log "WARN" "Fichier /etc/passwd modifiable par l'utilisateur actuel"
+    fi
+    
+    if [ -w /etc/shadow ]; then
+        log "WARN" "Fichier /etc/shadow modifiable par l'utilisateur actuel"
+    fi
 }
 
 configure_boot_config() {
@@ -739,7 +847,7 @@ SSH_SERVICE=""
 SSH_PROCESS_PATTERN=""
 
 log() {
-    echo "$(date '\''+%Y-%m-%d %H:%M:%S'\'') - $1" | tee -a $LOGFILE
+    echo "$(date "+%Y-%m-%d %H:%M:%S") - $1" | tee -a $LOGFILE
 }
 
 # Auto-détection de la configuration SSH au démarrage
@@ -1193,6 +1301,8 @@ echo "  sudo systemctl status ssh     - Statut du service SSH"
 echo "  sudo systemctl restart ssh    - Redémarrer SSH"
 echo "  sudo systemctl status fail2ban - Statut fail2ban"
 echo "  sudo fail2ban-client status   - Statut des prisons"
+echo "  sudo needrestart -b           - Vérifier bibliothèques obsolètes"
+echo "  sudo needrestart -r a         - Redémarrer services avec libs obsolètes"
 echo
 echo "🌐 RÉSEAU:"
 echo "  ip addr show                  - Adresses IP"
@@ -1348,6 +1458,12 @@ main() {
     log "INFO" "Début de la configuration automatique"
     backup_original_configs
     update_system
+    
+    if [[ $CHECK_LIBRARIES == 'y' ]]; then
+        check_and_fix_outdated_libraries
+    fi
+    
+    perform_security_checks
     configure_boot_config
     configure_ssh
     configure_network
