@@ -1,8 +1,8 @@
 #!/bin/bash
 # PiStarter - Auto-Configurator
 # Script d'installation et configuration automatique pour Raspberry Pi
-# Usage: curl -fsSL https://raw.githubusercontent.com/PrinMeshia/PiStarter/refs/heads/main/rpi-config.sh | bash
-# Ou: wget -qO- https://raw.githubusercontent.com/PrinMeshia/PiStarter/refs/heads/main/rpi-config.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/PrinMeshia/rpi-auto-configurator/refs/heads/main/rpi-config.sh | bash
+# Ou: wget -qO- https://raw.githubusercontent.com/PrinMeshia/rpi-auto-configurator/refs/heads/main/rpi-config.sh | bash
 
 VERSION="1.0.0"
 SCRIPT_NAME="PiStarter"
@@ -97,15 +97,17 @@ interactive_setup() {
     echo -e "${BLUE}Configuration interactive du Raspberry Pi${NC}"
     echo
     
-    # Type d'utilisation
+    # Type d'utilisation (choix multiple)
     echo -e "${CYAN}1. Type d'utilisation:${NC}"
     echo "1) Serveur (headless, SSH, performances)"
     echo "2) Bureau/Desktop (interface graphique)"
     echo "3) IoT/Domotique (économie d'énergie, capteurs)"
     echo "4) Développement (outils dev, serveur web)"
     echo "5) Media Center (Kodi, streaming)"
-    read -p "Choisissez (1-5) [1]: " USAGE_TYPE
+    echo -e "${YELLOW}Vous pouvez sélectionner plusieurs usages séparés par des virgules (ex: 1,4)${NC}"
+    read -p "Choisissez les usages (ex : 1,4) [1]: " USAGE_TYPE
     USAGE_TYPE=${USAGE_TYPE:-1}
+    IFS=',' read -ra USAGE_ARRAY <<< "$USAGE_TYPE"
     
     # Configuration réseau
     echo -e "\n${CYAN}2. Configuration réseau:${NC}"
@@ -148,13 +150,16 @@ interactive_setup() {
     
     # Récapitulatif
     echo -e "\n${PURPLE}═══ RÉCAPITULATIF DE LA CONFIGURATION ═══${NC}"
-    case $USAGE_TYPE in
-        1) echo "Type: Serveur headless" ;;
-        2) echo "Type: Desktop/Bureau" ;;
-        3) echo "Type: IoT/Domotique" ;;
-        4) echo "Type: Développement" ;;
-        5) echo "Type: Media Center" ;;
-    esac
+    echo "Type(s) d'usage sélectionné(s) :"
+    for type in "${USAGE_ARRAY[@]}"; do
+        case $type in
+            1) echo "- Serveur headless" ;;
+            2) echo "- Desktop/Bureau" ;;
+            3) echo "- IoT/Domotique" ;;
+            4) echo "- Développement" ;;
+            5) echo "- Media Center" ;;
+        esac
+    done
     echo "Réseau: $(case $NETWORK_TYPE in
         1) echo "Wi-Fi + Ethernet";;
         2) echo "Ethernet seul";;
@@ -242,48 +247,50 @@ disable_fw_kms_setup=1
 EOF
     
     # Configurations spécifiques selon le type
-    case $USAGE_TYPE in
-        1) # Serveur
-            cat >> "$temp_config" << 'EOF'
-# Configuration SERVEUR
-start_x=0
-gpu_mem=16
-dtparam=audio=off
-hdmi_blanking=1
-dtparam=act_led_trigger=none
-dtparam=act_led_activelow=off
-dtparam=pwr_led_trigger=none
-dtparam=pwr_led_activelow=off
-EOF
-            if [[ $NETWORK_TYPE == "2" ]]; then
-                echo "dtoverlay=pi3-disable-wifi" >> "$temp_config"
-            fi
-            if [[ $NETWORK_TYPE == "3" ]]; then
-                echo "dtoverlay=pi3-disable-bt" >> "$temp_config"
-            fi
-            ;;
-            
-        2) # Desktop
-            cat >> "$temp_config" << 'EOF'
-# Configuration DESKTOP
-gpu_mem=128
-dtparam=audio=on
-EOF
-            ;;
-            
-        3) # IoT
-            cat >> "$temp_config" << 'EOF'
-# Configuration IoT/DOMOTIQUE
-start_x=0
-gpu_mem=16
-dtparam=audio=off
-hdmi_blanking=1
-# Optimisations énergie
-dtparam=act_led_trigger=none
-dtparam=pwr_led_trigger=none
-EOF
-            ;;
-    esac
+    for type in "${USAGE_ARRAY[@]}"; do
+        case $USAGE_TYPE in
+            1) # Serveur
+                cat >> "$temp_config" << 'EOF'
+                    # Configuration SERVEUR
+                    start_x=0
+                    gpu_mem=16
+                    dtparam=audio=off
+                    hdmi_blanking=1
+                    dtparam=act_led_trigger=none
+                    dtparam=act_led_activelow=off
+                    dtparam=pwr_led_trigger=none
+                    dtparam=pwr_led_activelow=off
+                    EOF
+                    if [[ $NETWORK_TYPE == "2" ]]; then
+                        echo "dtoverlay=pi3-disable-wifi" >> "$temp_config"
+                    fi
+                    if [[ $NETWORK_TYPE == "3" ]]; then
+                        echo "dtoverlay=pi3-disable-bt" >> "$temp_config"
+                    fi
+                    ;;
+                
+            2) # Desktop
+                cat >> "$temp_config" << 'EOF'
+                    # Configuration DESKTOP
+                    gpu_mem=128
+                    dtparam=audio=on
+                    EOF
+                ;;
+                
+            3) # IoT
+                cat >> "$temp_config" << 'EOF'
+                    # Configuration IoT/DOMOTIQUE
+                    start_x=0
+                    gpu_mem=16
+                    dtparam=audio=off
+                    hdmi_blanking=1
+                    # Optimisations énergie
+                    dtparam=act_led_trigger=none
+                    dtparam=pwr_led_trigger=none
+                    EOF
+                                ;;
+        esac
+    done
     
     # Optimisations selon le modèle de RPi
     if [[ $RPI_MODEL == "4" ]]; then
@@ -308,54 +315,54 @@ configure_ssh() {
     local sshd_config="/etc/ssh/sshd_config"
     
     cat > /tmp/sshd_config.new << EOF
-# Configuration SSH générée par PiStarter
-Port $SSH_PORT
-AddressFamily inet
-ListenAddress 0.0.0.0
+        # Configuration SSH générée par PiStarter
+        Port $SSH_PORT
+        AddressFamily inet
+        ListenAddress 0.0.0.0
 
-# Sécurité de base
-PermitRootLogin no
-StrictModes yes
-MaxAuthTries 6
-MaxSessions 10
-MaxStartups 10:30:60
+        # Sécurité de base
+        PermitRootLogin no
+        StrictModes yes
+        MaxAuthTries 6
+        MaxSessions 10
+        MaxStartups 10:30:60
 
-# Authentification
-PubkeyAuthentication yes
-AuthorizedKeysFile .ssh/authorized_keys
-PasswordAuthentication $([[ $SSH_PASSWORD_AUTH == 'y' ]] && echo 'yes' || echo 'no')
-PermitEmptyPasswords no
-ChallengeResponseAuthentication no
+        # Authentification
+        PubkeyAuthentication yes
+        AuthorizedKeysFile .ssh/authorized_keys
+        PasswordAuthentication $([[ $SSH_PASSWORD_AUTH == 'y' ]] && echo 'yes' || echo 'no')
+        PermitEmptyPasswords no
+        ChallengeResponseAuthentication no
 
-# Keep-alive pour stabilité
-ClientAliveInterval 30
-ClientAliveCountMax 6
-TCPKeepAlive yes
+        # Keep-alive pour stabilité
+        ClientAliveInterval 30
+        ClientAliveCountMax 6
+        TCPKeepAlive yes
 
-# Optimisations
-Compression delayed
-UseDNS no
-GSSAPIAuthentication no
-UsePAM yes
+        # Optimisations
+        Compression delayed
+        UseDNS no
+        GSSAPIAuthentication no
+        UsePAM yes
 
-# Logging
-SyslogFacility AUTHPRIV
-LogLevel INFO
+        # Logging
+        SyslogFacility AUTHPRIV
+        LogLevel INFO
 
-# SFTP
-Subsystem sftp /usr/lib/openssh/sftp-server
+        # SFTP
+        Subsystem sftp /usr/lib/openssh/sftp-server
 
-# Limitations utilisateur
-AllowUsers $DEFAULT_USERNAME
-Protocol 2
-HostbasedAuthentication no
-IgnoreRhosts yes
+        # Limitations utilisateur
+        AllowUsers $DEFAULT_USERNAME
+        Protocol 2
+        HostbasedAuthentication no
+        IgnoreRhosts yes
 
-# Chiffrements optimisés
-Ciphers chacha20-poly1305@openssh.com,aes128-ctr,aes192-ctr,aes256-ctr
-MACs hmac-sha2-256,hmac-sha2-512
-KexAlgorithms curve25519-sha256@libssh.org,diffie-hellman-group16-sha512
-EOF
+        # Chiffrements optimisés
+        Ciphers chacha20-poly1305@openssh.com,aes128-ctr,aes192-ctr,aes256-ctr
+        MACs hmac-sha2-256,hmac-sha2-512
+        KexAlgorithms curve25519-sha256@libssh.org,diffie-hellman-group16-sha512
+        EOF
     
     # Tester la configuration
     if sudo sshd -t -f /tmp/sshd_config.new; then
