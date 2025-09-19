@@ -1,8 +1,8 @@
 #!/bin/bash
 # PiStarter - Auto-Configurator
 # Script d'installation et configuration automatique pour Raspberry Pi
-# Usage: curl -fsSL https://raw.githubusercontent.com/PrinMeshia/rpi-auto-configurator/refs/heads/main/rpi-config.sh | bash
-# Ou: wget -qO- https://raw.githubusercontent.com/PrinMeshia/rpi-auto-configurator/refs/heads/main/rpi-config.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/PrinMeshia/PiStarter/refs/heads/main/rpi-config.sh | bash
+# Ou: wget -qO- https://raw.githubusercontent.com/PrinMeshia/PiStarter/refs/heads/main/rpi-config.sh | bash
 
 VERSION="1.0.0"
 SCRIPT_NAME="PiStarter"
